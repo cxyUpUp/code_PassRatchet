@@ -10,7 +10,6 @@ from ecdsa.numbertheory import square_root_mod_prime
 
 
 def _affine_generator(curve):
-    """仿射坐标下的基点 G。k*G 与 exchange 中 k*仿射公钥同为 Point.__mul__；不改动 exchange。"""
     g = curve.generator
     if hasattr(g, "to_affine"):
         g = g.to_affine()
@@ -21,7 +20,7 @@ PORT = 8000
 CLIENT_NAME = "Bob"
 
 # -------------------------
-# 通信函数
+# Communication
 # -------------------------
 
 def send_message(sock, msg):
@@ -35,7 +34,7 @@ def receive_message(sock):
     return json.loads(data)
 
 # -------------------------
-# ECC 配置
+# ECC 
 # -------------------------
 
 DEFAULT_CURVE = curves.NIST256p
@@ -68,11 +67,9 @@ class ECCKeyPair:
         else:
             self.private_key = private_key
 
-        # 私钥 * 仿射 G：与 exchange 中私钥*仿射对方公钥同为 Point.__mul__（仅改密钥生成）
         self.public_point = self.private_key * _affine_generator(self.curve)
 
     def exchange(self, peer_public_point):
-        """计算共享密钥"""
         if isinstance(peer_public_point, Point):
             peer_point = peer_public_point
         elif isinstance(peer_public_point, Point):
@@ -106,13 +103,12 @@ class ECCKeyPair:
             return bytes([0x04]) + x_bytes + y_bytes
 
     def _bytes_to_point(self, data, curve_obj=None):
-        """从字节恢复椭圆曲线点"""
         if curve_obj is None:
             curve_obj = self.curve_obj
 
         p = curve_obj.p()
 
-        if data[0] == 0x04:  # 未压缩格式
+        if data[0] == 0x04:  
             field_size_bytes = (p.bit_length() + 7) // 8
             if len(data) != 1 + 2 * field_size_bytes:
                 raise ValueError("Invalid uncompressed point length")
@@ -123,7 +119,6 @@ class ECCKeyPair:
             x = int.from_bytes(x_bytes, 'big')
             y = int.from_bytes(y_bytes, 'big')
 
-            # 验证点在曲线上
             if not curve_obj.contains_point(x, y):
                 raise ValueError("Point not on curve")
 
@@ -139,16 +134,13 @@ class ECCKeyPair:
 
             if y is None:
                 raise ValueError("Invalid compressed point")
-                # 检查y的奇偶性
-            if data[0] == 0x02:  # y应为偶数
+
+            if data[0] == 0x02:  
                 if y % 2 != 0:
                     y = p - y
-            else:  # data[0] == 0x03, y应为奇数
+            else:  
                 if y % 2 == 0:
                     y = p - y
-
-            # if (data[0] == 0x02 and y % 2 != 0) or (data[0] == 0x03 and y % 2 == 0):
-            #     y = p - y
 
             return Point(curve_obj, x, y)
         else:
@@ -162,9 +154,9 @@ class ECCKeyPair:
         return keypair
 
 def select_security_level():
-    """选择安全等级"""
+
     while True:
-        choice = '1'  # 默认选择128-bit
+        choice = '1'  
         if choice == '1':
             return 128
         elif choice == '2':
@@ -180,12 +172,10 @@ def generate_keypair(security_level):
 
 
 def load_public_key(pub_bytes, security_level):
-    """从字节加载公钥"""
     curve = SECURITY_CONFIGS[security_level]["curve"]
     return ECCKeyPair.from_public_bytes(pub_bytes, curve)
 
 def get_public_bytes(ecc_keypair, compressed=True):
-    """获取公钥的字节表示"""
     return ecc_keypair.public_bytes(compressed)
 
 
@@ -203,7 +193,7 @@ def main():
     dh_outputs = []
     communication_times = []
 
-    # 注册
+ 
     send_message(client, {
         "type": "register",
         "client": CLIENT_NAME,
@@ -212,7 +202,7 @@ def main():
 
     print(f"--------------------{CLIENT_NAME} - ECC DH Ratchet --------------------")
 
-    # 初始密钥对
+ 
     time1 = time.perf_counter()
     current_keypair = generate_keypair(security_level)
     current_public_bytes = get_public_bytes(current_keypair, compressed=True)
@@ -227,7 +217,6 @@ def main():
     print(f"[{CLIENT_NAME}] Init public key: {current_public_bytes.hex()[:24]}...")
 
     try:
-        # 发送初始公钥
         send_message(client, {"type": "public_key", "pubkey": current_public_bytes.hex()})
 
         time_init = (time.perf_counter() - time1) * 1000
@@ -235,11 +224,11 @@ def main():
         print(f"[{CLIENT_NAME}] sent initial public key")
 
         ratchet_count = 0
-        # ECC DH 棘轮循环
 
-        while ratchet_count < 1001:
+        # DH ratchet cycle
+        while ratchet_count < 10:
 
-            cmd = 'r'  # 自动轮换以便测试
+            cmd = 'r' 
             if cmd == 'q':
                 break
             elif cmd == 'r':
@@ -247,7 +236,6 @@ def main():
                 ratchet_count += 1
                 print(f"\n[{CLIENT_NAME}] ---- Ratchet {ratchet_count} ----")
 
-                # 接收 Alice 公钥
                 time_start = time.perf_counter()
                 resp = receive_message(client)
 
@@ -269,7 +257,6 @@ def main():
                 print(f"\n[{CLIENT_NAME}] DH_output #{ratchet_count}--1: {dh_output_1[:32]}... ({time_b1:.4f}ms)")
                 dh_outputs.append(dh_output_1)
 
-                # 生成新密钥对
                 start_time = time.perf_counter()
                 new_keypair = generate_keypair(security_level)
                 new_public_bytes = get_public_bytes(new_keypair, compressed=True)
@@ -279,7 +266,6 @@ def main():
                     new_keypair.public_point.x().to_bytes(_fsb_kg, "big")
                 ).hexdigest()
 
-                # 发送新公钥
                 send_message(client, { "type": "public_key", "pubkey": new_public_bytes.hex()})
                 time_init = (time.perf_counter() - start_time) * 1000
                 print(f"[{CLIENT_NAME}] send new public key #{ratchet_count}: {new_public_bytes.hex()[:24]}...")
@@ -300,7 +286,6 @@ def main():
                 current_public_bytes = new_public_bytes
 
             else:
-                # 被动接收对方的新公钥
                 client.settimeout(1)
                 try:
                     resp = receive_message(client)
@@ -309,7 +294,6 @@ def main():
                         print(f"[{CLIENT_NAME}] Received new public key: {peer_pub_bytes.hex()[:24]}...")
                         peer_keypair = load_public_key(peer_pub_bytes, security_level)
 
-                        # 用当前私钥计算 DH
                         dh_shared_int = current_ecc_keypair.exchange(peer_keypair.public_point)
                         field_size_bytes = (current_ecc_keypair.curve_obj.p().bit_length() + 7) // 8
                         dh_shared_bytes = dh_shared_int.to_bytes(field_size_bytes, 'big')
@@ -323,7 +307,6 @@ def main():
 
         send_message(client, {"type": "done"})
 
-        # 显示统计
         df = pd.DataFrame(communication_times, columns=["ECC DH Ratchet Time (ms)"])
 
         print(f"\n{'=' * 50}")

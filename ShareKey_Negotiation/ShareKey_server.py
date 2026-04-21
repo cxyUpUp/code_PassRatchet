@@ -13,28 +13,7 @@ from ecdsa import curves
 from ecdsa.ellipticcurve import Point, INFINITY
 from CONFIG import *
 
-print(f"[CHECK] 当前曲线: {CURVE_NAME}, order bit-length: {order.bit_length()}")
-# ========== ECC 公共参数 ==========
-# curve = curves.NIST256p
-# order = curve.order
-# generator = curve.generator
-# H_func = hashlib.sha256  # NIST256p 对应 128-bit 安全级别, 用 SHA256
-
-
-# ========== ECC Point helpers ==========
-
-# def point_to_bytes(P) -> bytes:
-#     """Point -> 64 bytes (x||y), big-endian"""
-#     if hasattr(P, "to_affine"):
-#         P = P.to_affine()
-#     return P.x().to_bytes(32, 'big') + P.y().to_bytes(32, 'big')
-#
-#
-# def bytes_to_point(b: bytes) -> Point:
-#     """64 bytes -> Point on curve"""
-#     x = int.from_bytes(b[:32], 'big')
-#     y = int.from_bytes(b[32:], 'big')
-#     return Point(curve.curve, x, y)
+print(f"[CHECK] The current curve: {CURVE_NAME}, order bit-length: {order.bit_length()}")
 
 
 @dataclass
@@ -51,15 +30,6 @@ class PartyState:
 
 
 def Init() :
-    """
-    Init(pwA, pwB) -> (gamma_S, gamma_A, gamma_B)
-    Implements the described three-step initialization using the server as in the text.
-    - A produces alpha_A0 = H(pwA)^{rA0}, sends to S
-    - S computes beta_A0 = alpha_A0^{sk} and returns to A
-    - A recovers kA0 = beta_A0^{1/rA0} (so kA0 = H(pwA)^{sk})
-    - Same for B
-    - Server state gamma_S = (sk, alpha_B0)  (per text)
-    """
     # Server chooses sk
     sk = secrets.randbelow(order - 2) + 2
     gamma_S = ServerState(sk=sk, alpha_last=None)
@@ -67,24 +37,13 @@ def Init() :
 
 
 def Ser(gamma_S: ServerState, alpha_new) -> Tuple[object, ServerState]:
-    """
-    Ser(gamma_S, alpha_A) -> (beta_B, gamma_S')
-    - server parses its state gamma_S = (sk, alpha_last)
-    - computes beta_B = alpha_A^{sk}  →  beta = sk * alpha_last (ECC)
-    - updates gamma_S' = (sk, alpha_A)
-    """
     sk = gamma_S.sk
     alpha_old = gamma_S.alpha_last
-    beta = sk * alpha_old  # ECC 标量乘
+    beta = sk * alpha_old  
     gamma_S.alpha_last = alpha_new
     return beta, gamma_S
 
 def KRt(gamma_S: ServerState) -> ServerState:
-    """
-    KRt(gamma_S) -> gamma_S'
-    - server samples random r_s and computes new sk' = kdf(sk, r_s)
-    - update gamma_S to (sk', alpha_A) where alpha_A is last stored alpha
-    """
     rs = secrets.token_bytes(16)
     new_sk_bytes = kdf_bytes(int_to_bytes(gamma_S.sk), rs)
     # map to integer in Z_order
@@ -95,44 +54,16 @@ def KRt(gamma_S: ServerState) -> ServerState:
     return gamma_S
 
 
-# ========== 数据结构 ==========
+# ========== Data Structure ==========
 @dataclass
 class BulletinBoard:
-    """公告板，存储注册和认证时的公共值"""
+    """Notice board, storing common values during registration and authentication"""
     env_a: str = None   # hex string of ECC point (was int)
     env_b: str = None   # hex string of ECC point (was int)
-    # 认证阶段保存 (y_hex, cm_int)
     commits: Dict[str, Tuple[str, int]] = None
 
     def __post_init__(self):
         self.commits = {}
-
-
-# def kdf_bytes(*parts: bytes) -> bytes:
-#     """Simple key derivation -> 32 bytes."""
-#     h = H_func()
-#     for b in parts:
-#         h.update(b)
-#     return h.digest()
-#
-# def H_to_int(*parts: bytes) -> int:
-#     """Hash H: {0,1}* -> Z_order (as integer)."""
-#     h = H_func()
-#     for b in parts:
-#         h.update(b)
-#     return int(int.from_bytes(h.digest(), 'big') % order)
-#
-# def int_to_bytes(i: int) -> bytes:
-#     return i.to_bytes((i.bit_length() + 7)//8 or 1, 'big')
-#
-# def H_bytes(*parts: bytes) -> bytes:
-#     h = H_func()
-#     for p in parts:
-#         h.update(p)
-#     return h.digest()
-# #
-# def H_int(*parts: bytes, mod: int) -> int:
-#     return int(int.from_bytes(H_bytes(*parts), 'big') % mod)
 
 
 def rand_coprime(mod):
@@ -143,69 +74,47 @@ def rand_coprime(mod):
 
 
 def send_msg(conn, msg):
-    message_str = json.dumps(msg) + "\n"  # 在每条消息后面加上换行符（`\n`）
-    conn.sendall(message_str.encode())  # 发送数据
+    message_str = json.dumps(msg) + "\n"  
+    conn.sendall(message_str.encode())  
 
 
 class Server:
-    """
-    模拟协议图中的 Server(sk)：
-      1. 负责接收 a 或 a' 并返回 b = a^sk  →  b = sk * a_point (ECC)
-      2. 记录认证阶段的 y 与 cm
-      3. 提供公告板存取
-    """
     def __init__(self):
-        # 服务端的长期秘密 sk
         self.sk = secrets.randbelow(order - 2) + 2
         self.board = BulletinBoard()
-        print(f"[Server] 初始化完成，sk 已生成 (曲线 NIST P-256, order {order.bit_length()} bits)")
+        print(f"[Server] Initialization completed. sk has been generated. ( NIST P-256, order {order.bit_length()} bits)")
 
-    # ---------- 注册阶段 ----------
+
     def reg_response(self, who: str, a_point) -> object:
-        """
-        接收来自 Alice/Bob 的 a (ECC point)，
-        返回 b = sk * a_point (ECC point)。
-        """
-        b_point = self.sk * a_point  # ECC 标量乘
-        print(f"[Server] Registration/Auth: 收到 {who} 的 a 值并返回 b")
+        b_point = self.sk * a_point  
+        print(f"[Server] Registration/Auth: Receive the value 'a' from {who} and return 'b'")
         return b_point
 
+
     def post_env(self, who: str, env_hex: str):
-        """
-        保存 Alice/Bob 的 env 到公告板。
-        env_hex: ECC point 的 hex 编码
-        """
         if who == 'Alice':
             self.board.env_a = env_hex
         else:
             self.board.env_b = env_hex
-        print(f"[Server] {who} 的 env 已写入公告板")
+        print(f"[Server] The env of {who} has been posted on the bulletin board.")
 
-    # ---------- 认证阶段 ----------
+
     def store_commit(self, who: str, y_hex: str, cm: int):
-        """
-        保存 y (hex string) 与 cm (int) 以便另一方读取。
-        """
         self.board.commits[who] = (y_hex, cm)
         print(f"[Server] 存储 {who} 的 (y, cm)")
 
-    # ---------- 读取公共数据 ----------
+
     def get_peer_commit(self, who: str):
-        """
-        返回对方的 (y_hex, cm_int)。
-        """
         peer = 'Bob' if who == 'Alice' else 'Alice'
         return self.board.commits.get(peer)
 
+
     def get_peer_env(self, who: str):
-        """
-        返回对方的 env (hex string)。
-        """
         return self.board.env_b if who == 'Alice' else self.board.env_a
 
 
 
-clients = {}  # 保存 {"Alice": connA, "Bob": connB}
+clients = {}  
 session_data = {
         "Alice": {},
         "Bob": {},
@@ -213,16 +122,15 @@ session_data = {
         "pre_beta": 0
     }
 
-# ShareKey 认证阶段: 等待双方同时提交 (a', y) 后一次性下发挑战与对端参数
+# ShareKey Authentication Phase
 _auth_barrier_lock = threading.Lock()
 _auth_parts = {}  # "Alice"|"Bob" -> (a2_point, y_hex)
 _auth_verify_ctx = {}  # identity -> {"cm": int, "y_hex": str}
 _auth_server_holder = {}  # {"server": Server}
-auth_barrier = None  # Barrier(2, ...) 在 start_server 中初始化
+auth_barrier = None  # Barrier(2, ...) Initialize in the "start_server" function
 
 
 def _dispatch_auth_bundles():
-    """双方在 barrier 上会合后发送 (b', cm, env_peer, y_peer)，并记录校验所需 cm、y。"""
     srv = _auth_server_holder["server"]
     board = srv.board
     (a2_a, y_a_hex) = _auth_parts["Alice"]
@@ -265,20 +173,19 @@ def handle_client(conn, addr, server, gamma_S):
             if not data:
                 break
 
-             # 尝试解析 JSON 数据
             try:
                 msg = json.loads(data)
             except json.JSONDecodeError:
                 print(f"[!] Invalid JSON from {addr}: {data}")
-                continue  # 跳过当前消息，继续接收
+                continue  
 
             msg_type = msg.get("type")
 
-            # === Step 1: 客户端发送身份 ===
+            # === Step 1: Client sends identity ===
             if msg_type == "identity":
 
                 response = {"type": "ack", "msg": f"Hello {msg['name']}, register start."}
-                conn.sendall(json.dumps(response).encode())  # 发送确认消息
+                conn.sendall(json.dumps(response).encode()) 
                 print(f"[Server] Sending identity response.")
 
                 identity = msg.get("name")
@@ -289,9 +196,8 @@ def handle_client(conn, addr, server, gamma_S):
                 print("---------------------------------------------------------------------------------")
                 continue
 
-            # === Step 2: 处理注册和认证请求 ===
+            # === Step 2: Handle registration and authentication requests ===
             if msg_type == "register":
-                # 原: a_val = int(msg["a"], 16)   →  现: a_point = bytes_to_point(...)
                 a_point = bytes_to_point(bytes.fromhex(msg["a"]))
                 b_point = server.reg_response(identity, a_point)
                 b_hex = point_to_bytes(b_point).hex()
@@ -302,7 +208,6 @@ def handle_client(conn, addr, server, gamma_S):
                 continue
 
             elif msg_type == "post_env":
-                # 原: env_val = int(msg["env"], 16)  →  现: 直接存 hex string
                 env_hex = msg["env"]
                 server.post_env(identity, env_hex)
 
@@ -340,7 +245,7 @@ def handle_client(conn, addr, server, gamma_S):
                     print(f"[Server] Authentication verified for {identity}: g^s == env * y^cm")
                 else:
                     print(f"[Server] Authentication FAILED for {identity}: verification mismatch")
-                    # 口令/承诺校验失败：终止本次认证，通知双方并断开连接
+                    # Password verification failed: Terminate this authentication process and disconnect.
                     fail_msg = {
                         "type": "auth_failed",
                         "reason": "verification_failed",
@@ -371,18 +276,12 @@ def handle_client(conn, addr, server, gamma_S):
                 continue
 
             elif msg_type == "store_commit":
-                # 原: y_val = int(msg["y"], 16)
-                # 现: y 是 ECC point 的 hex, 直接存 hex string
                 y_hex = msg["y"]
-                # cm = H(M || y_bytes) mod order
-                # 原: cm_val = H_int(M, int_to_bytes(y_val), mod=ORDER)
-                # 现: cm_val = H_int(M, bytes.fromhex(y_hex), mod=order)
                 M = secrets.token_bytes(16)
                 cm_val = H_int(M, bytes.fromhex(y_hex), mod=order)
                 cm_val_hex = hex(cm_val)[2:]
 
                 server.store_commit(identity, y_hex, cm_val)
-                # print("store_commit",server.board.)
 
                 response = {"type": "commit", "cm": cm_val_hex}
                 send_msg(clients[identity], response)
@@ -392,14 +291,11 @@ def handle_client(conn, addr, server, gamma_S):
             elif msg_type == "request_env":
 
                 print("request_env from ", identity)
-                # 原: peer_env = server.get_peer_env(identity); peer_env_hex = hex(peer_env)[2:]
-                # 现: peer_env_hex 已经是 hex string
                 peer_env_hex = server.get_peer_env(identity)
-                # print("=======peer_env: ", peer_env)
 
                 while True:
                     peer_tu = server.get_peer_commit(identity)
-                    # print("=======peer_tu: ", peer_tu)
+
                     if peer_tu is not None:
                         peer_y_hex = peer_tu[0]   # hex string of ECC point
                         peer_cm = peer_tu[1]       # int
@@ -408,8 +304,6 @@ def handle_client(conn, addr, server, gamma_S):
                         print(f"[Server] Sent < env,cm,y > to {identity}.")
                         break
                     else:
-                        # print("Waiting for peer commit...")
-                        # time.sleep(0.1)
                         continue
                 continue
 
@@ -434,25 +328,20 @@ def handle_client(conn, addr, server, gamma_S):
                 continue
 
             elif msg_type == "send_alpha_A0":
-                # 原: alpha_A0 = int(msg["alpha_A0"], 16)
-                # 现: alpha_A0 是 ECC point
                 alpha_A0_hex = msg["alpha_A0"]
                 alpha_A0_point = bytes_to_point(bytes.fromhex(alpha_A0_hex))
                 session_data["Alice"]["alpha_A0"] = alpha_A0_hex
                 print(f"[Server-Alice] Received <alpha_A0> from Alice.")
 
-                # 计算 beta_A0 并回给 Alice
-                # 原: beta_A0 = pow(alpha_A0, gamma_S.sk, p)
-                # 现: beta_A0 = gamma_S.sk * alpha_A0_point
                 beta_A0_point = gamma_S.sk * alpha_A0_point
                 beta_A0_hex = point_to_bytes(beta_A0_point).hex()
                 response_to_alice = {"type": "send_beta_A0", "beta_A0": beta_A0_hex}
                 send_msg(clients["Alice"], response_to_alice)
                 print(f"[Server-Alice] Sent <beta_A0> to Alice")
 
-                # 循环等待 Bob 上线
-                max_wait_time = 10  # 最多等待 10 秒
-                interval = 0.1  # 每 0.1 秒检查一次
+
+                max_wait_time = 10  
+                interval = 0.1  
                 waited = 0
 
                 while "Bob" not in clients:
@@ -462,7 +351,7 @@ def handle_client(conn, addr, server, gamma_S):
                     if waited >= max_wait_time:
                         print("[Server] Timeout: Bob not connected.")
                         break
-                # 发送 "A to B" 通知给 Bob
+                
                 if "Bob" in clients:
                     response_to_bob = {"type": "A_to_B", "message": "A to B"}
                     send_msg(clients["Bob"], response_to_bob)
@@ -470,19 +359,15 @@ def handle_client(conn, addr, server, gamma_S):
                 else:
                     print("[Server] Bob not connected yet.")
 
-
-                # 检查 Bob 是否已经发送 alpha_B0
                 if "alpha_B0" in session_data["Bob"]:
                     session_data["init_done"] = True
                     print("[Server] Both Init steps done, ready for messaging.")
 
 
                 continue
-
-                # Bob 发送 alpha_B0
+               
             elif msg_type == "send_alpha_B0":
-                # 原: alpha_B0 = int(msg["alpha_B0"], 16)
-                # 现: alpha_B0 是 ECC point
+
                 alpha_B0_hex = msg["alpha_B0"]
                 alpha_B0_point = bytes_to_point(bytes.fromhex(alpha_B0_hex))
                 session_data["Bob"]["alpha_B0"] = alpha_B0_hex
@@ -490,8 +375,6 @@ def handle_client(conn, addr, server, gamma_S):
 
                 print(f"[Server-Bob] Server received <alpha_B0> from Bob")
                 print("[Server] gamma_S :", gamma_S)
-                # print(f"[Server-Bob] Server received <alpha_B0> from Bob")
-                # print("session_data:", session_data)
 
                 if "alpha_A0" in session_data["Alice"]:
                     session_data["init_done"] = True
@@ -521,17 +404,14 @@ def handle_client(conn, addr, server, gamma_S):
                 # print()
                 print("***********************From A to B ***********************")
                 # Server: Ser
-                # 接收 Alice 发送的 c_10 和 alpha_A1
                 print(f"[Server-Alice] Received <c_10, alpha_A1> from Alice")
                 c_10 = msg["c_10"]
                 beta_B0 = session_data["pre_beta"]
 
-                # 发送 c_10，beta_B0给 Bob
                 response = {"type": "send_c_beta_B", "c_10": c_10, "beta_B0": point_to_bytes(beta_B0).hex()}
                 send_msg(clients["Bob"], response)
                 print(f"[Server-Bob] Sent <c_10, beta_B0> to Bob")
 
-                #gengxin
                 alpha_A1_hex = msg["alpha_A1"]
                 alpha_A1_point = bytes_to_point(bytes.fromhex(alpha_A1_hex))
                 gamma_S.alpha_last = alpha_A1_point
@@ -557,7 +437,6 @@ def handle_client(conn, addr, server, gamma_S):
                 c_11 = msg["c_11"]
                 beta_A1 = session_data["pre_beta"]
 
-                # 发送 c_11，beta_A1给 Alice
                 response = {"type": "send_c_beta_A", "c_11": c_11, "beta_A1": point_to_bytes(beta_A1).hex()}
                 send_msg(clients["Alice"], response)
                 print(f"[Server-Alice] Sent <c_11, beta_A1> to Alice")
@@ -614,4 +493,4 @@ def start_server(host, port):
 if __name__ == "__main__":
 
     start_server("0.0.0.0", 8000)
-    # print("[Server] Server 已启动，可供 Alice 和 Bob 调用接口。")
+

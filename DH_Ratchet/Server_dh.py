@@ -10,7 +10,7 @@ clients = {}  # {name: conn}
 clients_lock = threading.Lock()
 
 
-# ================= JSON 通信层 =================
+# ================= Communication =================
 
 def send_message(conn, msg):
     message_str = json.dumps(msg) + "\n"
@@ -24,7 +24,7 @@ def recv_message(conn):
     return json.loads(data.strip())
 
 
-# ================= 转发逻辑（未改变） =================
+# ================= Forwarding logic =================
 
 def forward_to_peer(sender_name, message):
     peer_name = "Bob" if sender_name == "Alice" else "Alice"
@@ -43,7 +43,6 @@ def handle_client(conn, addr):
     try:
         conn.settimeout(300)
 
-        #  接收注册消息
         msg = recv_message(conn)
         if msg is None or msg["type"] != "register":
             print(f"[Server] Valid registration")
@@ -57,7 +56,7 @@ def handle_client(conn, addr):
 
         print(f"[Server] {client_name} registered ({addr}) ")
 
-        # 持续转发消息
+        # Continue to forward the message
         while True:
             try:
                 msg = recv_message(conn)

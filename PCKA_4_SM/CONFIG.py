@@ -1,30 +1,10 @@
 """
 pcka_config.py
 ==============
-PCKA 协议公共配置 —— Alice / Bob / Server 三端统一 import 本模块。
+PCKA Protocol Public Configuration - Alice / Bob / Server - Unified import for all three parties. 
+★ Switching the security level only requires modifying the "CURVE_NAME" line ★
+Just keep the three parts consistent, and there is no need to make any changes to the other code.
 
-★ 切换安全级别只需修改 CURVE_NAME 一行 ★
-三端保持一致即可，其他代码无需任何改动。
-
-支持的 CURVE_NAME:
-  "NIST192p"        —  96-bit 安全
-  "NIST224p"        — 112-bit 安全
-  "NIST256p"        — 128-bit 安全 (默认, 推荐)
-  "NIST384p"        — 192-bit 安全
-  "NIST521p"        — 256-bit 安全
-  "SECP256k1"       — 128-bit 安全 (比特币曲线)
-  "BRAINPOOLP256r1" — 128-bit 安全
-  "BRAINPOOLP384r1" — 192-bit 安全
-  "BRAINPOOLP512r1" — 256-bit 安全
-
-导出内容:
-  - 曲线参数: curve, order, generator, COORD_BYTE_LEN, KDF_BYTE_LEN
-  - ECC 点工具: point_to_bytes, bytes_to_point, to_affine, int_from_point
-  - 哈希/KDF: kdf_bytes, H_to_point
-  - OPRF: Init, unblind
-  - 对称加密: SE_enc, SE_dec
-  - 协议核心: PartyState, Snd, Rcv
-  - 网络工具: connect_to_server, send_message, receive_message
 """
 
 import socket
@@ -42,7 +22,7 @@ from ecdsa.ellipticcurve import Point, INFINITY
 
 
 # ======================================================================
-#  ★ 修改这里切换安全级别 (三端必须一致) ★
+# ★ Modify here to switch security level (the three settings must be consistent) ★
 # ======================================================================
 CURVE_NAME = "NIST256p"
 # CURVE_NAME = "NIST384p"
@@ -50,7 +30,7 @@ CURVE_NAME = "NIST256p"
 # ======================================================================
 
 
-# ---------- 曲线 → 推荐哈希 映射 ----------
+# ---------- Curve → Recommended Hash Mapping ----------
 _CURVE_HASH = {
     "NIST256p":        (hashlib.sha256, hashes.SHA256()),
     "NIST384p":        (hashlib.sha384, hashes.SHA384()),
@@ -58,7 +38,7 @@ _CURVE_HASH = {
     "SECP256k1":       (hashlib.sha256, hashes.SHA256())
 }
 
-# ---------- 曲线 → 安全级别 (bit) ----------
+# ---------- Curve → Security Level (bit) ----------
 _CURVE_SECURITY = {
     "NIST256p":        128,
     "NIST384p":        192,
@@ -67,7 +47,7 @@ _CURVE_SECURITY = {
 }
 
 
-# ==================== 自动派生曲线参数 ====================
+# ==================== Automatically derived curve parameters ====================
 
 curve = getattr(curves, CURVE_NAME)
 order = curve.order
@@ -76,23 +56,23 @@ generator = curve.generator
 _H_lib, _H_crypto = _CURVE_HASH[CURVE_NAME]
 security_bits = _CURVE_SECURITY[CURVE_NAME]
 
-COORD_BYTE_LEN = (order.bit_length() + 7) // 8   # 每个坐标的字节长度 (32/48/66)
-KDF_BYTE_LEN   = COORD_BYTE_LEN * 2               # int_from_point → to_bytes 长度
+COORD_BYTE_LEN = (order.bit_length() + 7) // 8   
+KDF_BYTE_LEN   = COORD_BYTE_LEN * 2               
 
 print(f"[pcka_config] {CURVE_NAME}  |  {security_bits}-bit security  |  "
       f"order {order.bit_length()}-bit  |  hash {_H_lib().name.upper()}  |  "
       f"point {COORD_BYTE_LEN * 2} bytes")
 
 
-# # ==================== 数据结构 ====================
+# ==================== Data Structure====================
 #
 @dataclass
 class PartyState:
     r: int
-    k: object  # ECC 点
+    k: object  # ECC point
 
 
-# ==================== ECC 点工具 ====================
+# ==================== ECC Point Tool====================
 
 def to_affine(P):
     """Convert PointJacobi to affine Point if needed"""
@@ -102,21 +82,20 @@ def to_affine(P):
 
 
 def point_to_bytes(P: Point) -> bytes:
-    """Point -> COORD_BYTE_LEN*2 bytes (x||y), 自动适配曲线"""
+    """Point -> COORD_BYTE_LEN*2 bytes (x||y)"""
     if hasattr(P, "to_affine"):
         P = P.to_affine()
     return P.x().to_bytes(COORD_BYTE_LEN, 'big') + P.y().to_bytes(COORD_BYTE_LEN, 'big')
 
 
 def bytes_to_point(b: bytes) -> Point:
-    """bytes -> Point on curve, 自动适配曲线"""
+    """bytes -> Point on curve"""
     x = int.from_bytes(b[:COORD_BYTE_LEN], 'big')
     y = int.from_bytes(b[COORD_BYTE_LEN:], 'big')
     return Point(curve.curve, x, y)
 
 
 def int_from_point(point):
-    """将 ECC 点转换为整数用于 KDF"""
     if hasattr(point, "to_affine"):
         point = point.to_affine()
     if point == INFINITY:
@@ -124,7 +103,7 @@ def int_from_point(point):
     return point.x() + point.y()
 
 
-# ==================== 哈希 / KDF ====================
+# ==================== Hash / KDF ====================
 
 def kdf_bytes(*parts: bytes) -> bytes:
     h = _H_lib()
@@ -165,7 +144,7 @@ def int_to_bytes(i: int) -> bytes:
     return i.to_bytes((i.bit_length() + 7) // 8 or 1, 'big')
 
 
-# ==================== 对称加密 ====================
+# ==================== Symmetric Encryption====================
 
 def SE_enc(key_bytes: bytes, plaintext: bytes) -> bytes:
     aes = AESGCM(hashlib.sha256(key_bytes).digest())  # 32-byte key
@@ -201,7 +180,6 @@ def aesgcm_decrypt(key_bytes: bytes, blob: bytes) -> bytes:
 # ==================== OPRF ====================
 
 def Init(pw: bytes, sid: bytes):
-    """OPRF 初始化: 生成盲化点 alpha 和随机数 r"""
     r0 = secrets.randbelow(order - 1) + 1
     digest = _H_lib(sid + pw).digest()
     base_int = int.from_bytes(digest, 'big') % order
@@ -211,33 +189,13 @@ def Init(pw: bytes, sid: bytes):
 
 
 def unblind(beta, r0):
-    """去盲化 ECC 点"""
     inv_r = pow(r0, -1, order)
 
     return inv_r * beta
 
 
-# ==================== 协议核心: Snd / Rcv ====================
-
-# def Snd(gamma_: PartyState, m: bytes) -> Tuple[bytes, object, PartyState]:
-#     """发送消息"""
-#     r_ = gamma_.r
-#     key_bytes = kdf_bytes(int_from_point(gamma_.k).to_bytes(KDF_BYTE_LEN, 'big'))
-#     c = SE_enc(key_bytes, m)
-#
-#     r_prime = secrets.randbelow(order - 1) + 1
-#     hk_scalar = int_from_point(gamma_.k) % order
-#     alpha_ = r_prime * gamma_.k
-#     new_gamma = PartyState(r=r_prime, k=gamma_.k)
-#     return c, alpha_, new_gamma
-
-
 def Rcv(gamma_: PartyState, c: bytes, beta_) -> Tuple[Optional[bytes], PartyState]:
-    """接收消息"""
-    # t1 = time.perf_counter()
     inv_r = pow(gamma_.r, -1, order)
-    # t = time.perf_counter()
-    # print(f"DDDDDDDD mod  {(t - t1) * 1000:.6f} ms")
     k_prime = inv_r * beta_
 
     key_from_kprime = kdf_bytes(int_from_point(k_prime).to_bytes(KDF_BYTE_LEN, 'big'))
@@ -257,7 +215,7 @@ def Rcv(gamma_: PartyState, c: bytes, beta_) -> Tuple[Optional[bytes], PartyStat
         return None, gamma_
 
 
-# ==================== 网络工具 ====================
+# ==================== Network tools ====================
 
 def connect_to_server(host, port):
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -278,20 +236,17 @@ def receive_message(sock):
 
 
 def send_msg(conn, msg):
-    """Server 端发送消息 (与 send_message 功能相同, 保留兼容)"""
     message_str = json.dumps(msg) + "\n"
     conn.sendall(message_str.encode())
 
 
-# ==================== 辅助 ====================
+# ==================== Auxiliary====================
 
 def rand_scalar():
-    """生成 [1, order-1] 范围内的随机标量"""
     return secrets.randbelow(order - 1) + 1
 
 
 def rand_coprime(mod):
-    """生成与 mod 互素的随机数"""
     from math import gcd
     while True:
         x = secrets.randbelow(mod - 2) + 1
@@ -300,7 +255,6 @@ def rand_coprime(mod):
 
 
 def map_pw_to_point(pw: str):
-    """将密码映射到标量 mod order"""
     h = int(int.from_bytes(H_bytes(pw.encode()), 'big') % order)
     if h == 0:
         h = 1

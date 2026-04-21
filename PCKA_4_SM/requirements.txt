@@ -1,5 +1,7 @@
 cryptography
 
+ecdsa
+
 pandas
 
 secrets

@@ -1,19 +1,3 @@
-"""
-ShareKey_Bob — ECC (ecdsa) 版本
-================================
-将原先基于模幂运算 (Z_p*) 的 ShareKey Bob 端协议
-迁移到 NIST P-256 椭圆曲线 (ecdsa 库)。
-
-运算映射:
-  原: pow(g, x, p)         → 现: x * generator  (标量乘基点)
-  原: pow(a, sk, p)        → 现: sk * a_point    (标量乘任意点)
-  原: (a * b) % p          → 现: a_point + b_point (点加)
-  原: pow(a, -1, ORDER)    → 现: pow(a, -1, order) (标量模逆)
-  原: int 值作为密钥       → 现: ECC 点序列化后作为密钥
-
-依赖: ecdsa, cryptography
-"""
-
 import socket
 import json
 import hashlib
@@ -26,88 +10,6 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from ecdsa import curves
 from ecdsa.ellipticcurve import Point, INFINITY
 from CONFIG import *
-
-# -----------------------
-# ECC Setup
-# -----------------------
-# curve = curves.NIST256p
-# order = curve.order
-# generator = curve.generator
-# H_func = hashlib.sha256  # NIST256p 对应 128-bit 安全级别, 用 SHA256
-
-
-# -----------------------
-# ECC Point helpers
-# -----------------------
-
-# def point_to_bytes(P) -> bytes:
-#     """Point -> 64 bytes (x||y), big-endian"""
-#     if hasattr(P, "to_affine"):
-#         P = P.to_affine()
-#     return P.x().to_bytes(32, 'big') + P.y().to_bytes(32, 'big')
-#
-#
-# def bytes_to_point(b: bytes) -> Point:
-#     """64 bytes -> Point on curve"""
-#     x = int.from_bytes(b[:32], 'big')
-#     y = int.from_bytes(b[32:], 'big')
-#     return Point(curve.curve, x, y)
-#
-#
-# # -----------------------
-# # Hash / KDF helpers
-# # -----------------------
-#
-# def kdf_bytes(*parts: bytes) -> bytes:
-#     """Simple key derivation -> 32 bytes."""
-#     h = H_func()
-#     for b in parts:
-#         h.update(b)
-#     return h.digest()
-#
-#
-# def H_bytes(*parts: bytes) -> bytes:
-#     h = H_func()
-#     for p in parts:
-#         h.update(p)
-#     return h.digest()
-#
-#
-# def H_int(*parts: bytes, mod: int) -> int:
-#     return int(int.from_bytes(H_bytes(*parts), 'big') % mod)
-#
-#
-# def H_to_int(*parts: bytes) -> int:
-#     """Hash H: {0,1}* -> Z_order (as integer mod curve order)."""
-#     h = H_func()
-#     for b in parts:
-#         h.update(b)
-#     return int(int.from_bytes(h.digest(), 'big') % order)
-#
-#
-# def int_to_bytes(i: int) -> bytes:
-#     return i.to_bytes((i.bit_length() + 7) // 8 or 1, 'big')
-
-
-# -----------------------
-# Symmetric encryption
-# -----------------------
-
-# def SE_enc(key_bytes: bytes, plaintext: bytes) -> bytes:
-#     aes = AESGCM(hashlib.sha256(key_bytes).digest())  # 32-byte key
-#     nonce = secrets.token_bytes(12)
-#     ct = aes.encrypt(nonce, plaintext, None)
-#     return nonce + ct
-#
-#
-# def SE_dec(key_bytes: bytes, blob: bytes):
-#     try:
-#         aes = AESGCM(hashlib.sha256(key_bytes).digest())
-#         nonce, ct = blob[:12], blob[12:]
-#         pt = aes.decrypt(nonce, ct, None)
-#         return pt
-#     except Exception:
-#         return None
 
 
 # -----------------------
@@ -137,12 +39,10 @@ def receive_message(sock):
 # -----------------------
 
 def rand_scalar():
-    """生成 [1, order-1] 范围内的随机标量 (ECC order 是素数, 必然互素)"""
     return secrets.randbelow(order - 1) + 1
 
 
 def map_pw_to_point(pw: str):
-    """将密码映射到标量 mod order"""
     h = int(int.from_bytes(H_bytes(pw.encode()), 'big') % order)
     if h == 0:
         h = 1
@@ -150,7 +50,7 @@ def map_pw_to_point(pw: str):
 
 
 # -----------------------
-# Data structures (留作参考)
+# Data structures 
 # -----------------------
 
 @dataclass
@@ -166,7 +66,6 @@ class Server:
     store_b: tuple = None
 
     def reg_response(self, a_point):
-        """原: pow(a_val, sk, p)  →  现: sk * a_point"""
         return self.sk * a_point
 
     def store_commit(self, who: str, y_point, cm: int):
@@ -191,7 +90,7 @@ class Bob:
         self.rwd2 = None     # int (scalar)
         self.r_c = None
 
-    # ---- 注册阶段 (class method, 留作参考) ----
+    # ---- Registration stage  ----
     def register(self):
         while True:
             self.r = secrets.randbelow(order - 2) + 1
@@ -214,9 +113,10 @@ class Bob:
         print("[Bob] Registration complete, env_b posted.")
         return self.env
 
-    # ---- 认证阶段 (class method, 留作参考) ----
+
+    # ---- Certification stage ----
     def start_auth(self):
-        pw_try = input("[Bob] 再次输入密码以认证: ")
+        pw_try = input("[Bob] Please re-enter the password to verify.: ")
         while True:
             self.r2 = secrets.randbelow(order - 2) + 1
             if math.gcd(self.r2, order) == 1:
@@ -234,20 +134,14 @@ class Bob:
                           pw_try.encode(), mod=order)
         print("[Bob] Authentication a' sent to server.")
 
-    # ---- 提交阶段 ----
+        
     def commit_phase(self):
-        """原: y = pow(g, x, p)  →  现: y = x * G"""
         self.x = secrets.randbelow(order - 2) + 1
         self.y = self.x * generator  # ECC point
         return self.y
 
-    # ---- 派生共享密钥 ----
+
     def compute_sharekey(self, env_a_point, y_a_point) -> bytes:
-        """
-        认证阶段新协议:
-          k_B = H(env_A^{rwd'_B}, y_A^{x_B})
-        ECC: env_A^{rwd'_B} -> rwd'_B * env_A ; y_A^{x_B} -> x_B * y_A
-        """
         term1 = self.rwd2 * env_a_point
         term2 = self.x * y_a_point
         print("[Bob] rwd'_B * env_A =", point_to_bytes(term1).hex()[:32], "...")
@@ -282,35 +176,30 @@ def main():
         print("|                                 Register                                      |")
         print("---------------------------------------------------------------------------------")
 
-        # password = input("请输入 Bob 的口令: ")
-        password = "bob_password"  # 固定密码，便于测试
+        # password = input("Please enter Bob's password.: ")
+        password = "bob_password"  # # Fixed password, convenient for testing
 
         bob = Bob(password)
 
         time1 = time.perf_counter()
 
-        # ======== 注册阶段 (内联实现) ========
         r1 = rand_scalar()
         h_pw = H_to_int(password.encode())                  # 标量 mod order
         base_point = h_pw * generator                        # h_pw * G → ECC 点
         a_point = r1 * base_point                            # r1 * h_pw * G → 盲化的 ECC 点
 
-        # 发送 alpha (ECC 点序列化为 hex)
         msg = {"type": "register", "name": "B", "a": point_to_bytes(a_point).hex()}
         send_message(sock, msg)
         print("[Bob] Sent <a> to server. ")
 
-        # 接收 beta (ECC 点)
         response = receive_message(sock)
         print(f"[Bob] Received <b> from server. {response}")
         b_point = bytes_to_point(bytes.fromhex(response['b']))
         print(f"[Bob] Received <b> from server: {point_to_bytes(b_point).hex()[:32]}...")
 
-        # 去盲化: t_k = r1^{-1} * b = sk * h_pw * G
         r1_inv = pow(r1, -1, order)
         t_k = r1_inv * b_point  # ECC point
 
-        # rwd_b = H(id || point_to_bytes(t_k) || pw) mod order
         rwd_b = H_int(bob.id_str.encode(), point_to_bytes(t_k), password.encode(), mod=order)
 
         # env_b = rwd_b * G  (ECC 点)
@@ -331,13 +220,13 @@ def main():
         print("|                                 Authentication                                |")
         print("---------------------------------------------------------------------------------")
 
-        # ======== 认证阶段 ========
-        # password1 = input("再次输入 Bob 的口令: ")
-        password1 = "bob_password"  # 固定密码，便于测试
+        # ======== Certification stage ========
+        # password1 = input("Re-enter Bob's password: ")
+        password1 = "bob_password"  # Fixed password, convenient for testing
 
         time3 = time.perf_counter()
         r2 = rand_scalar()
-        h_pw_try = H_to_int(password1.encode())              # 标量
+        h_pw_try = H_to_int(password1.encode())              
         base_point2 = h_pw_try * generator                    # H(pw') * G
         a2_point = r2 * base_point2                           # a'_B
         bob.x = secrets.randbelow(order - 2) + 1
@@ -362,7 +251,7 @@ def main():
         y_a_hex = response['y']
         print(f"[Bob] Received <b2, cm_b, env_a, y_a> from server.{response}")
 
-        # 去盲化
+        
         r2_inv = pow(r2, -1, order)
         t_k2 = r2_inv * b2_point  # ECC point
 
@@ -385,7 +274,7 @@ def main():
         time_Init = (time2 - time1) * 1000
         time_Auth = (time4_ - time4 + time3_ - time3) * 1000
 
-        # 进入 PCKA 安全通信阶段
+        # Enter the PCKA secure communication
         # run(sharekey_b, sock)
 
         print(f"[Time-ShareKey_Negotiation]  time for Bob:  {(time_Init + time_Auth):.4f} ms")

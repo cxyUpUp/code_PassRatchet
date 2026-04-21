@@ -3,33 +3,33 @@ import string
 
 
 def generate_password_file():
-    # 定义需要的口令长度
+    # Define the required password length
     lengths = [8, 16, 32, 64, 128]
 
-    # 字符集
+    # Character set
     chars = string.ascii_letters + string.digits + "!@#$%^&*"
 
-    # 生成口令字典
+    # Generate password dictionary
     passwords = {}
     for length in lengths:
         password = ''.join(secrets.choice(chars) for _ in range(length))
         passwords[length] = password
 
-    # 保存到单一文件
+    # Save to a single file
     with open('passwords.txt', 'w', encoding='utf-8') as f:
-        f.write("口令库 - 按长度调用\n")
+        f.write("Password database - Sorted by length\n")
         f.write("=" * 40 + "\n\n")
 
         for length in lengths:
             f.write(f"LENGTH_{length}: {passwords[length]}\n")
 
-    print("口令文件已生成: passwords.txt")
-    print("\n生成的口令长度:")
+    print("The password file has been generated.: passwords.txt")
+    print("\nThe length of the generated password:")
     for length in lengths:
-        print(f"  {length}字符: {passwords[length]}")
+        print(f"  {length}Characters: {passwords[length]}")
 
     return passwords
 
 
-# 生成口令文件
+# Generate password file
 passwords_dict = generate_password_file()

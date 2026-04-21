@@ -10,21 +10,17 @@ from ecdsa.numbertheory import square_root_mod_prime
 
 
 def _affine_generator(curve):
-    """仿射坐标下的基点 G。k*G 走仿射 Point.__mul__，与 exchange 里 k*Q（仿射公钥）同一实现；不改动 exchange。"""
     g = curve.generator
     if hasattr(g, "to_affine"):
         g = g.to_affine()
     return g
 
-HOST = '13.208.161.119'
-# HOST = '127.0.0.1'
+HOST = '127.0.0.1' #server ip
 PORT = 8000
 CLIENT_NAME = "Alice"
 
-# ECC配置 - 使用ecdsa库
 DEFAULT_CURVE = curves.NIST256p
 
-# 安全等级配置
 SECURITY_CONFIGS = {
     128: {
         "curve": curves.NIST256p,
@@ -44,7 +40,7 @@ SECURITY_CONFIGS = {
 }
 
 
-# ================= 通信层 =================
+# ================= Communication Layer =================
 
 def send_message(sock, msg):
     message_str = json.dumps(msg) + "\n"
@@ -58,7 +54,7 @@ def receive_message(sock):
     return json.loads(data.strip())
 
 
-# ================= ECC 部分（未改动） =================
+# ================= ECC =================
 
 class ECCKeyPair:
 
@@ -72,7 +68,6 @@ class ECCKeyPair:
         else:
             self.private_key = private_key
 
-        # 私钥 * 仿射 G：与 exchange 中私钥*仿射对方公钥同为 Point.__mul__（仅改密钥生成，不改 exchange）
         self.public_point = self.private_key * _affine_generator(self.curve)
 
     def exchange(self, peer_public_point):
@@ -134,11 +129,10 @@ class ECCKeyPair:
             if y is None:
                 raise ValueError("Invalid compressed point")
 
-            # 检查y的奇偶性
-            if data[0] == 0x02:  # y应为偶数
+            if data[0] == 0x02:  
                 if y % 2 != 0:
                     y = p - y
-            else:  # data[0] == 0x03, y应为奇数
+            else:  
                 if y % 2 == 0:
                     y = p - y
 
@@ -147,12 +141,11 @@ class ECCKeyPair:
             raise ValueError("Invalid point format")
 
 
-# ================= 主函数 =================
+# ================= Main function =================
 
 def select_security_level():
-    """选择安全等级"""
     while True:
-        choice = '1'  # 默认选择128-bit
+        choice = '1'  # Default selection: 128-bit
         if choice == '1':
             return 128
         elif choice == '2':
@@ -175,7 +168,6 @@ def load_public_key(pub_bytes, security_level):
     return keypair
 
 def get_public_bytes(ecc_keypair, compressed=True):
-    """获取公钥的字节表示"""
     return ecc_keypair.public_bytes(compressed)
 
 
@@ -200,14 +192,12 @@ def main():
 
     try:
 
-        # 注册
         send_message(client, {
             "type": "register",
             "client": CLIENT_NAME,
             "security_level": security_level
         })
 
-        # 接收初始公钥
         time_start = time.perf_counter()
         resp = receive_message(client)
 
@@ -223,8 +213,8 @@ def main():
 
         ratchet_count = 0
 
-        # ECC DH 棘轮循环
-        while ratchet_count < 301:
+        # DH ratchet cycle
+        while ratchet_count < 10:
             cmd = 'r'
             if cmd == 'q':
                 break
@@ -235,7 +225,6 @@ def main():
 
                 time1 = time.perf_counter()
 
-                # 生成新的密钥对
                 t_p = time.perf_counter()
                 current_keypair = generate_keypair(security_level)
                 current_public_bytes = current_keypair.public_bytes(compressed=True)
@@ -246,21 +235,18 @@ def main():
                 ).hexdigest()
                 t_p_end = time.perf_counter()
 
-                print(f"[DDDDDDDDDD] Key generation time: {(t_p_end - t_p) * 1000:.4f}ms")
                 print(f"[{CLIENT_NAME}] Init public key: {current_public_bytes.hex()[:24]}...")
 
-                # 计算DH共享密钥
+                # Calculate the DH shared key
                 t_out = time.perf_counter()
                 shared_secret_int = current_keypair.exchange(peer_keypair.public_point)
                 field_size_bytes = (current_keypair.curve_obj.p().bit_length() + 7) // 8
                 shared_secret_bytes = shared_secret_int.to_bytes(field_size_bytes, 'big')
                 dh_output_1 = hash_func(shared_secret_bytes).hexdigest()
                 t_out_end = time.perf_counter()
-                print(f"[DDDDDDDDDD] ECC DH computation time: {(t_out_end - t_out) * 1000:.4f}ms")
 
                 communication_times1.append([(t_p_end - t_p) * 1000 + (t_out_end - t_out) * 1000])
 
-                # 发送公钥
                 send_message(client, {
                     "type": "public_key",
                     "pubkey": current_public_bytes.hex()
@@ -273,7 +259,6 @@ def main():
                 print(f"\n[{CLIENT_NAME}] DH_output #{ratchet_count}--1: {dh_output_1[:32]}... ({time_a1:.4f}ms)")
                 dh_outputs.append(dh_output_1)
 
-                # 等待对方公钥
                 start_time = time.perf_counter()
                 print(f"[{CLIENT_NAME}] Waiting for peer's public key...")
                 resp = receive_message(client)
@@ -285,7 +270,7 @@ def main():
                     time_init = (time.perf_counter() - start_time) * 1000
                     print(f"[{CLIENT_NAME}] Received new public key: {peer_pub_bytes.hex()[:24]}...")
 
-                    # 计算第二个DH输出
+                    # Calculate the second DH output
                     time3 = time.perf_counter()
                     shared_secret_int = current_keypair.exchange(peer_keypair.public_point)
                     shared_secret_bytes = shared_secret_int.to_bytes(field_size_bytes, 'big')
@@ -303,7 +288,6 @@ def main():
                     break
 
             else:
-                # 被动接收对方的新公钥
                 client.settimeout(1)
                 try:
                     resp = receive_message(client)
@@ -312,7 +296,6 @@ def main():
                         print(f"[{CLIENT_NAME}] Received new public key: {peer_pub_bytes.hex()[:24]}...")
                         peer_keypair = load_public_key(peer_pub_bytes, security_level)
 
-                        # 用当前私钥计算 DH
                         dh_shared_int = current_ecc_keypair.exchange(peer_keypair.public_point)
                         field_size_bytes = (current_ecc_keypair.curve_obj.p().bit_length() + 7) // 8
                         dh_shared_bytes = dh_shared_int.to_bytes(field_size_bytes, 'big')
@@ -325,10 +308,8 @@ def main():
                 client.settimeout(60)
 
 
-        # 发送完成信号
         send_message(client, {"type": "done"})
 
-        # 显示统计
         df = pd.DataFrame(communication_times, columns=["ECC DH Ratchet Time (ms)"])
         print(f"\n{'=' * 50}")
         print(f"Rounds: {ratchet_count}")
@@ -341,36 +322,6 @@ def main():
             print(f"  #{i}: {dh[:48]}...")
         print(f"{'=' * 50}")
 
-        df1 = pd.DataFrame(communication_times1, columns=["ECC DH1 (ms)"])
-        print(df1)
-
-        df2 = pd.DataFrame(communication_times2, columns=["ECC DH2 (ms)"])
-        print(df2)
-
-        # with pd.ExcelWriter(r"D:\pyProiect\code_PassRatchaet\Experiment_result\_para_PCKA.xlsx",
-        #                     engine='openpyxl',
-        #                     mode='a') as writer:
-        #     df.to_excel(writer, sheet_name='aws-DH256-', index=False)
-
-        with pd.ExcelWriter(r"D:\pyProiect\code_PassRatchaet\Experiment_result\AWS_DH.xlsx", engine='openpyxl',
-                            mode='a') as writer:
-            df.to_excel(writer, sheet_name='awsDH-300----', index=False)
-
-        # with pd.ExcelWriter(r"D:\pyProiect\code_PassRatchaet\Experiment_result\AWS_DH.xlsx", engine='openpyxl',
-        #                     mode='a') as writer:
-        #     df2.to_excel(writer, sheet_name='awsDH2-1', index=False)
-
-
-        # df.to_excel(r"D:\pyProiect\code_PassRatchaet\Experiment_result\Compare_.xlsx", index=False)
-        # with pd.ExcelWriter(r"D:\pyProiect\code_PassRatchaet\Experiment_result\Compare_.xlsx",
-        #                     engine='openpyxl',
-        #                     mode='a') as writer:
-        #     df.to_excel(writer, sheet_name='DH2', index=False)
-
-        # with pd.ExcelWriter(r"D:\pyProiect\code_PassRatchaet\PCKA_4_SM\AWS-COM_ecdsa.xlsx",
-        #                     engine='openpyxl',
-        #                     mode='a') as writer:
-        #     df.to_excel(writer, sheet_name='DH4', index=False)
 
     except Exception as e:
         print(f"[{CLIENT_NAME}] error: {e}")
