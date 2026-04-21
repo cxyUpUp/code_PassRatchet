@@ -170,7 +170,7 @@ def main():
     if response:
         print(f"Alice received: {response}")
 
-    for _ in range(100):
+    for _ in range(10):
 
         print("---------------------------------------------------------------------------------")
         print("|                                 Register                                      |")
@@ -277,7 +277,7 @@ def main():
         # Enter the PCKA secure communication
         # run(sharekey_b, sock)
 
-        print(f"[Time-ShareKey_Negotiation]  time for Bob:  {(time_Init + time_Auth):.4f} ms")
+        # print(f"[Time-ShareKey_Negotiation]  time for Bob:  {(time_Init + time_Auth):.4f} ms")
 
 
 if __name__ == "__main__":

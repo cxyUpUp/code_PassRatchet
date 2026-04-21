@@ -86,8 +86,8 @@ After both complete registration, they enter authentication. During authenticati
 
 The current code includes defaults for batch testing:
 
-- `ShareKey_Alice.py`: loop count defaults to `for _ in range(100)`, password defaults to `"alice_password"`.
-- `ShareKey_Bob.py`: loop count defaults to `for _ in range(100)`, password defaults to `"bob_password"`.
+- `ShareKey_Alice.py`: loop count defaults to `for _ in range(10)`, password defaults to `"alice_password"`.
+- `ShareKey_Bob.py`: loop count defaults to `for _ in range(10)`, password defaults to `"bob_password"`.
 
 For more interactive experiments, you can change to:
 

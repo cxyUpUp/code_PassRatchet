@@ -178,7 +178,7 @@ def main():
     if response:
         print(f"Alice received: {response}")
 
-    for _ in range(100):#Set the running test to facilitate testing. The default setting is 1.
+    for _ in range(10):#Set the running test to facilitate testing. The default setting is 1.
 
         print("---------------------------------------------------------------------------------")
         print("|                                 Register                                      |")

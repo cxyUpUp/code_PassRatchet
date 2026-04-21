@@ -193,6 +193,17 @@ def unblind(beta, r0):
 
     return inv_r * beta
 
+def Snd(gamma_: PartyState, m: bytes) -> Tuple[bytes, object, PartyState]:
+    """发送消息"""
+    r_ = gamma_.r
+    key_bytes = kdf_bytes(int_from_point(gamma_.k).to_bytes(KDF_BYTE_LEN, 'big'))
+    c = SE_enc(key_bytes, m)
+
+    r_prime = secrets.randbelow(order - 1) + 1
+    hk_scalar = int_from_point(gamma_.k) % order
+    alpha_ = r_prime * gamma_.k
+    new_gamma = PartyState(r=r_prime, k=gamma_.k)
+    return c, alpha_, new_gamma
 
 def Rcv(gamma_: PartyState, c: bytes, beta_) -> Tuple[Optional[bytes], PartyState]:
     inv_r = pow(gamma_.r, -1, order)
