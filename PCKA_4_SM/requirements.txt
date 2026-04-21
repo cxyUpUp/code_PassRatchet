@@ -1,0 +1,9 @@
+cryptography
+
+pandas
+
+secrets
+
+hashlib
+
+socket
