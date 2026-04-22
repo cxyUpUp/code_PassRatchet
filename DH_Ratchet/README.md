@@ -14,11 +14,6 @@ This directory provides an DH Ratchet baseline implementation for comparison wit
 - `ecdsa`
 - `pandas`
 
-Install dependencies:
-
-```bash
-pip install ecdsa pandas
-```
 
 ## 3. Default Network Configuration
 
