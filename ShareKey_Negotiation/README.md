@@ -8,7 +8,6 @@ This directory contains the extended PCKA implementation: before entering the PC
 - `ShareKey_Alice.py`: Alice side. Performs registration, authentication, ShareKey derivation, then enters `PCKA_4_SM.Alice.run(...)`.
 - `ShareKey_Bob.py`: Bob side. Performs registration, authentication, ShareKey derivation, then enters `PCKA_4_SM.Bob.run(...)`.
 - `CONFIG.py`: Shared protocol configuration (curve, KDF, point encoding, encryption/decryption, etc.).
-- `PCKA_4_SM/`: The PCKA messaging-stage code invoked by this extension (Alice/Bob/Server variants).
 
 ## 2. Requirements
 
@@ -31,18 +30,8 @@ pip install cryptography ecdsa pandas
 
 For cross-machine deployment, change the address in client `connect_to_server(...)` calls to the actual server IP.
 
-## 4. Curve and Security Level
 
-Set in `CONFIG.py`:
-
-```python
-CURVE_NAME = "NIST256p"
-```
-
-Available options include `NIST384p`, `NIST521p`, and `SECP256k1`.  
-**Alice / Bob / Server must use identical configuration.**
-
-## 5. How to Run
+## 4. How to Run
 
 Open 3 terminals in the `ShareKey_Negotiation` directory:
 
@@ -67,7 +56,7 @@ python ShareKey_Alice.py
 Recommended order (same as original note): start `Server` first, then `Alice` and `Bob`.  
 After both complete registration, they enter authentication. During authentication, entering Bob's password first and Alice's password second helps keep Alice-side timing more stable.
 
-## 6. Protocol Flow (Implementation View)
+## 5. Protocol Flow (Implementation View)
 
 1. **Registration stage**
    - Both parties send blinded value `a` to the server.
@@ -82,7 +71,7 @@ After both complete registration, they enter authentication. During authenticati
 4. **Enter PCKA messaging stage**
    - Clients call the corresponding `run(...)` in `PCKA_4_SM` for subsequent secure messaging.
 
-## 7. Default Test Settings (Adjust as Needed)
+## 6. Default Test Settings (Adjust as Needed)
 
 The current code includes defaults for batch testing:
 
@@ -94,7 +83,7 @@ For more interactive experiments, you can change to:
 - Loop count set to `1`
 - Use `input(...)` to enter passwords manually
 
-## 8. Output
+## 7. Output
 
 Runtime logs usually include:
 
@@ -102,15 +91,6 @@ Runtime logs usually include:
 - ShareKey derivation completion messages
 - Messaging and latency statistics after entering PCKA
 
-## 9. Troubleshooting
 
-- **Authentication failed (`verification mismatch`)**  
-  Usually caused by inconsistent passwords or curve configuration between parties. Check `CURVE_NAME` and password inputs first.
-
-- **Client connection failed / timeout**  
-  Verify the server is running, ports are consistent (`8000` by default), and cross-machine networking is properly allowed.
-
-- **Failed to import `PCKA_4_SM`**  
-  Make sure you run from the `ShareKey_Negotiation` directory and the directory structure is unchanged (the `PCKA_4_SM` subdirectory must exist).
 
 

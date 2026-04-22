@@ -24,20 +24,7 @@ Install dependencies:
 pip install -r requirements.txt
 ```
 
-## 3. Key Configuration
-
-### 3.1 Curve and Security Level
-
-Modify in `CONFIG.py`:
-
-```python
-CURVE_NAME = "NIST256p"
-```
-
-Optional values include `NIST384p`, `NIST521p`, and `SECP256k1`.  
-**Important: Alice / Bob / Server must use exactly the same setting.**
-
-### 3.2 IP and Port
+## 3. IP and Port
 
 - `Server.py` default bind: `0.0.0.0:9000`
 - `Alice.py` default target: `127.0.0.1:9000`
@@ -108,21 +95,8 @@ After execution, the terminals print:
 - `PCKA Snd Time Summary` (Alice send stage)
 - `PCKA Rcv Time Summary` (Alice receive stage)
 
-## 8. Troubleshooting
 
-- **`ModuleNotFoundError: No module named 'ecdsa'`**  
-  Run `pip install ecdsa`.
-
-- **Client connection failed / timeout**  
-  Ensure `Server.py` is running, verify port consistency (`9000` by default), and check firewall/security group rules for cross-machine runs.
-
-- **`get_pw(...)` returns empty and causes errors**  
-  Make sure `passwords.txt` exists and contains the target length entry (e.g., `LENGTH_8:` or `8:`).
-
-- **Decryption failed (`⊥`)**  
-  Check whether all three parties use consistent configuration (especially `CURVE_NAME`) and ensure scripts from different directories are not mixed.
-
-## 9. AWS Deployment
+## 8. AWS Deployment
 
 First sign in to your AWS account at https://aws.amazon.com/ and create security credentials for programmatic AWS EC2 access.
 
