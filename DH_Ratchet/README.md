@@ -29,7 +29,7 @@ pip install ecdsa pandas
 For cross-machine runs, change `HOST` in the client scripts to the actual server IP.
 
 
-##4 . How to Run
+## 4. How to Run
 
 Open 3 terminals in the `DH_Ratchet` directory:
 
